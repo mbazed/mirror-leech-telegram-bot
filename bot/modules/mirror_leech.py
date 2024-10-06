@@ -4,7 +4,7 @@ from pyrogram.filters import command
 from pyrogram.handlers import MessageHandler
 from re import match as re_match
 
-from bot import bot, DOWNLOAD_DIR, LOGGER, bot_loop
+from bot import bot, DOWNLOAD_DIR, LOGGER, bot_loop, task_dict_lock
 from ..helper.ext_utils.bot_utils import (
     get_content_type,
     sync_to_async,
@@ -81,6 +81,8 @@ class Mirror(TaskListener):
         input_list = text[0].split(" ")
 
         args = {
+            "-doc": False,
+            "-med": False,
             "-d": False,
             "-j": False,
             "-s": False,
@@ -107,6 +109,7 @@ class Mirror(TaskListener):
             "-ca": "",
             "-cv": "",
             "-ns": "",
+            "-tl": "",
         }
 
         arg_parser(input_list[1:], args)
@@ -131,10 +134,13 @@ class Mirror(TaskListener):
         self.convert_video = args["-cv"]
         self.name_sub = args["-ns"]
         self.mixed_leech = args["-ml"]
+        self.thumbnail_layout = args["-tl"]
+        self.as_doc = args["-doc"]
+        self.as_med = args["-med"]
+        self.folder_name = args["-m"]
 
         headers = args["-h"]
         is_bulk = args["-b"]
-        folder_name = args["-m"]
 
         bulk_start = 0
         bulk_end = 0
@@ -164,21 +170,29 @@ class Mirror(TaskListener):
             is_bulk = True
 
         if not is_bulk:
-            if folder_name:
-                self.seed = False
-                ratio = None
-                seed_time = None
-                folder_name = f"/{folder_name}"
-                if not self.same_dir:
-                    self.same_dir = {
-                        "total": self.multi,
-                        "tasks": set(),
-                        "name": folder_name,
-                    }
-                self.same_dir["tasks"].add(self.mid)
-            elif self.same_dir:
-                self.same_dir["total"] -= 1
-
+            if self.multi > 0:
+                if self.folder_name:
+                    self.seed = False
+                    ratio = None
+                    seed_time = None
+                    self.folder_name = f"/{self.folder_name}"
+                    async with task_dict_lock:
+                        if self.folder_name in self.same_dir:
+                            self.same_dir[self.folder_name]["tasks"].add(self.mid)
+                            for fd_name in self.same_dir:
+                                if fd_name != self.folder_name:
+                                    self.same_dir[fd_name]["total"] -= 1
+                        elif self.same_dir:
+                            self.same_dir[self.folder_name] = {"total": self.multi, "tasks": {self.mid}}
+                            for fd_name in self.same_dir:
+                                if fd_name != self.folder_name:
+                                    self.same_dir[fd_name]["total"] -= 1
+                        else:
+                            self.same_dir = {self.folder_name: {"total": self.multi, "tasks": {self.mid}}}
+                elif self.same_dir:
+                    async with task_dict_lock:
+                        for fd_name in self.same_dir:
+                            self.same_dir[fd_name]["total"] -= 1
         else:
             await self.init_bulk(input_list, bulk_start, bulk_end, Mirror)
             return
@@ -186,11 +200,11 @@ class Mirror(TaskListener):
         if len(self.bulk) != 0:
             del self.bulk[0]
 
-        await self.run_multi(input_list, folder_name, Mirror)
+        await self.run_multi(input_list, Mirror)
 
         await self.get_tag(text)
 
-        path = f"{DOWNLOAD_DIR}{self.mid}{folder_name}"
+        path = f"{DOWNLOAD_DIR}{self.mid}{self.folder_name}"
 
         if not self.link and (reply_to := self.message.reply_to_message):
             if reply_to.text:
@@ -200,12 +214,11 @@ class Mirror(TaskListener):
                 reply_to, session = await get_tg_link_message(self.link)
             except Exception as e:
                 await send_message(self.message, f"ERROR: {e}")
-                self.remove_from_same_dir()
+                await self.remove_from_same_dir()
                 return
 
         if isinstance(reply_to, list):
             self.bulk = reply_to
-            self.same_dir = {}
             b_msg = input_list[:1]
             self.options = " ".join(input_list[1:])
             b_msg.append(f"{self.bulk[0]} -i {len(self.bulk)} {self.options}")
@@ -272,17 +285,17 @@ class Mirror(TaskListener):
             await send_message(
                 self.message, COMMAND_USAGE["mirror"][0], COMMAND_USAGE["mirror"][1]
             )
-            self.remove_from_same_dir()
+            await self.remove_from_same_dir()
             return
 
-        if self.link:
+        if len(self.link) > 0:
             LOGGER.info(self.link)
 
         try:
             await self.before_start()
         except Exception as e:
             await send_message(self.message, e)
-            self.remove_from_same_dir()
+            await self.remove_from_same_dir()
             return
 
         if (
@@ -310,7 +323,7 @@ class Mirror(TaskListener):
                         LOGGER.info(e)
                     if e.startswith("ERROR:"):
                         await send_message(self.message, e)
-                        self.remove_from_same_dir()
+                        await self.remove_from_same_dir()
                         return
 
         if file_ is not None:
@@ -324,7 +337,7 @@ class Mirror(TaskListener):
                 await add_jd_download(self, path)
             except (Exception, MYJDException) as e:
                 await send_message(self.message, f"{e}".strip())
-                self.remove_from_same_dir()
+                await self.remove_from_same_dir()
                 return
             finally:
                 if await aiopath.exists(self.link):

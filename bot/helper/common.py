@@ -84,6 +84,8 @@ class TaskConfig:
         self.name = ""
         self.new_dir = ""
         self.name_sub = ""
+        self.thumbnail_layout = ""
+        self.folder_name = ""
         self.split_size = 0
         self.max_split_size = 0
         self.multi = 0
@@ -110,12 +112,13 @@ class TaskConfig:
         self.convert_audio = False
         self.convert_video = False
         self.screen_shots = False
-        self.as_doc = False
         self.is_cancelled = False
         self.force_run = False
         self.force_download = False
         self.force_upload = False
         self.is_torrent = False
+        self.as_med = False
+        self.as_doc = False
         self.chat_thread_id = None
         self.suproc = None
         self.thumb = None
@@ -169,7 +172,7 @@ class TaskConfig:
             )
         )
         if self.name_sub:
-            self.name_sub = [x.split(" : ") for x in self.name_sub.split(" | ")]
+            self.name_sub = [x.split("/") for x in self.name_sub.split(" | ")]
             self.seed = False
         self.extension_filter = self.user_dict.get("excluded_extensions") or (
             global_extension_filter
@@ -177,7 +180,11 @@ class TaskConfig:
             else ["aria2", "!qB"]
         )
         if self.link not in ["rcl", "gdl"]:
-            if is_rclone_path(self.link) or is_gdrive_link(self.link):
+            if (
+                not self.is_jd
+                and is_rclone_path(self.link)
+                or is_gdrive_link(self.link)
+            ):
                 await self.is_token_exists(self.link, "dl")
         elif self.link == "rcl":
             if not self.is_ytdlp and not self.is_jd:
@@ -290,9 +297,12 @@ class TaskConfig:
                         self.mixed_leech = self.user_transmission
                     if "|" in self.up_dest:
                         self.up_dest, self.chat_thread_id = list(
-                            map(int, self.up_dest.split("|", 1))
+                            map(
+                                lambda x: int(x) if x.lstrip("-").isdigit() else x,
+                                self.up_dest.split("|", 1),
+                            )
                         )
-                    elif self.up_dest.isdigit() or self.up_dest.startswith("-"):
+                    elif self.up_dest.lstrip("-").isdigit():
                         self.up_dest = int(self.up_dest)
                     elif self.up_dest.lower() == "pm":
                         self.up_dest = self.user_id
@@ -349,10 +359,25 @@ class TaskConfig:
             )
             self.split_size = min(self.split_size, self.max_split_size)
 
-            self.as_doc = (
-                self.user_dict.get("as_doc", False)
-                or config_dict["AS_DOCUMENT"]
-                and "as_doc" not in self.user_dict
+            if not self.as_doc:
+                self.as_doc = (
+                    not self.as_med
+                    if self.as_med
+                    else (
+                        self.user_dict.get("as_doc", False)
+                        or config_dict["AS_DOCUMENT"]
+                        and "as_doc" not in self.user_dict
+                    )
+                )
+
+            self.thumbnail_layout = (
+                self.thumbnail_layout
+                or self.user_dict.get("thumb_layout", False)
+                or (
+                    config_dict["THUMBNAIL_LAYOUT"]
+                    if "thumb_layout" not in self.user_dict
+                    else ""
+                )
             )
 
             if is_telegram_link(self.thumb):
@@ -385,7 +410,7 @@ class TaskConfig:
                 self.tag = self.user.title
 
     @new_task
-    async def run_multi(self, input_list, folder_name, obj):
+    async def run_multi(self, input_list, obj):
         await sleep(7)
         if not self.multi_tag and self.multi > 1:
             self.multi_tag = token_urlsafe(3)
@@ -399,6 +424,9 @@ class TaskConfig:
                 self.message, f"{self.tag} Multi Task has been cancelled!"
             )
             await send_status_message(self.message)
+            async with task_dict_lock:
+                for fd_name in self.same_dir:
+                    self.same_dir[fd_name]["total"] -= self.multi
             return
         if len(self.bulk) != 0:
             msg = input_list[:1]
@@ -422,8 +450,6 @@ class TaskConfig:
         nextmsg = await self.client.get_messages(
             chat_id=self.message.chat.id, message_ids=nextmsg.id
         )
-        if folder_name:
-            self.same_dir["tasks"].add(nextmsg.id)
         if self.message.from_user:
             nextmsg.from_user = self.user
         else:
@@ -456,7 +482,12 @@ class TaskConfig:
                 del self.options[index + 1]
             self.options = " ".join(self.options)
             b_msg.append(f"{self.bulk[0]} -i {len(self.bulk)} {self.options}")
-            nextmsg = await send_message(self.message, " ".join(b_msg))
+            msg = " ".join(b_msg)
+            if len(self.bulk) > 2:
+                self.multi_tag = token_urlsafe(3)
+                multi_tags.add(self.multi_tag)
+                msg += f"\nCancel Multi: <code>/{BotCommands.CancelTaskCommand[1]} {self.multi_tag}</code>"
+            nextmsg = await send_message(self.message, msg)
             nextmsg = await self.client.get_messages(
                 chat_id=self.message.chat.id, message_ids=nextmsg.id
             )
@@ -482,6 +513,57 @@ class TaskConfig:
                 "Reply to text file or to telegram message that have links seperated by new line!",
             )
 
+    async def decompress_zst(self, dl_path, is_dir=False):
+        if is_dir:
+            for dirpath, _, files in await sync_to_async(walk, dl_path, topdown=False):
+                for file_ in files:
+                    if file_.endswith(".zst"):
+                        f_path = ospath.join(dirpath, file_)
+                        out_path = get_base_name(f_path)
+                        cmd = ["unzstd", f_path, "-o", out_path]
+                        if self.is_cancelled:
+                            return ""
+                        async with subprocess_lock:
+                            self.suproc = await create_subprocess_exec(
+                                *cmd, stderr=PIPE
+                            )
+                        _, stderr = await self.suproc.communicate()
+                        if self.is_cancelled:
+                            return ""
+                        code = self.suproc.returncode
+                        if code != 0:
+                            try:
+                                stderr = stderr.decode().strip()
+                            except:
+                                stderr = "Unable to decode the error!"
+                            LOGGER.error(
+                                f"{stderr}. Unable to extract zst file!. Path: {f_path}"
+                            )
+                        elif not self.seed:
+                            await remove(f_path)
+            return
+        elif dl_path.endswith(".zst"):
+            out_path = get_base_name(dl_path)
+            cmd = ["unzstd", dl_path, "-o", out_path]
+            if self.is_cancelled:
+                return ""
+            async with subprocess_lock:
+                self.suproc = await create_subprocess_exec(*cmd, stderr=PIPE)
+            _, stderr = await self.suproc.communicate()
+            if self.is_cancelled:
+                return ""
+            code = self.suproc.returncode
+            if code != 0:
+                try:
+                    stderr = stderr.decode().strip()
+                except:
+                    stderr = "Unable to decode the error!"
+                LOGGER.error(f"{stderr}. Unable to extract zst file!. Path: {dl_path}")
+            elif not self.seed:
+                await remove(dl_path)
+            return out_path
+        return dl_path
+
     async def proceed_extract(self, dl_path, gid):
         pswd = self.extract if isinstance(self.extract, str) else ""
         try:
@@ -494,6 +576,7 @@ class TaskConfig:
                     up_path = f"{self.new_dir}/{self.name}"
                 else:
                     up_path = dl_path
+                await self.decompress_zst(dl_path, is_dir=True)
                 for dirpath, _, files in await sync_to_async(
                     walk, dl_path, topdown=False
                 ):
@@ -502,6 +585,7 @@ class TaskConfig:
                             is_first_archive_split(file_)
                             or is_archive(file_)
                             and not file_.endswith(".rar")
+                            and not file_.endswith(".zst")
                         ):
                             f_path = ospath.join(dirpath, file_)
                             t_path = (
@@ -552,6 +636,7 @@ class TaskConfig:
                                     self.is_cancelled = True
                 return up_path
             else:
+                dl_path = await self.decompress_zst(dl_path)
                 up_path = get_base_name(dl_path)
                 if self.seed:
                     self.new_dir = f"{self.dir}10000"
@@ -737,12 +822,11 @@ class TaskConfig:
         if await aiopath.isfile(dl_path):
             if (await get_document_type(dl_path))[0]:
                 checked = True
-                await cpu_eater_lock.acquire()
-                LOGGER.info(f"Creating Sample video: {self.name}")
-                res = await create_sample_video(
-                    self, dl_path, sample_duration, part_duration
-                )
-                cpu_eater_lock.release()
+                async with cpu_eater_lock:
+                    LOGGER.info(f"Creating Sample video: {self.name}")
+                    res = await create_sample_video(
+                        self, dl_path, sample_duration, part_duration
+                    )
                 if res:
                     newfolder = ospath.splitext(dl_path)[0]
                     name = dl_path.rsplit("/", 1)[1]
@@ -956,13 +1040,20 @@ class TaskConfig:
         if await aiopath.isfile(dl_path):
             up_dir, name = dl_path.rsplit("/", 1)
             for substitution in self.name_sub:
+                sen = False
                 pattern = substitution[0]
-                res = (
-                    substitution[1] if len(substitution) > 1 and substitution[1] else ""
-                )
-                sen = len(substitution) > 2 and substitution[2] == "s"
-                new_name = sub(rf"{pattern}", res, name, flags=I if sen else 0)
-            new_path = ospath.join(up_dir, new_name)
+                if len(substitution) > 1:
+                    if len(substitution) > 2:
+                        sen = substitution[2] == "s"
+                        res = substitution[1]
+                    elif len(substitution[1]) == 0:
+                        res = " "
+                    else:
+                        res = substitution[1]
+                else:
+                    res = ""
+                name = sub(rf"{pattern}", res, name, flags=I if sen else 0)
+            new_path = ospath.join(up_dir, name)
             await move(dl_path, new_path)
             return new_path
         else:
@@ -970,13 +1061,18 @@ class TaskConfig:
                 for file_ in files:
                     f_path = ospath.join(dirpath, file_)
                     for substitution in self.name_sub:
+                        sen = False
                         pattern = substitution[0]
-                        res = (
-                            substitution[1]
-                            if len(substitution) > 1 and substitution[1]
-                            else ""
-                        )
-                        sen = len(substitution) > 2 and substitution[2] == "s"
-                        new_name = sub(rf"{pattern}", res, file_, flags=I if sen else 0)
-                    await move(f_path, ospath.join(dirpath, new_name))
+                        if len(substitution) > 1:
+                            if len(substitution) > 2:
+                                sen = substitution[2] == "s"
+                                res = substitution[1]
+                            elif len(substitution[1]) == 0:
+                                res = " "
+                            else:
+                                res = substitution[1]
+                        else:
+                            res = ""
+                        file_ = sub(rf"{pattern}", res, file_, flags=I if sen else 0)
+                    await move(f_path, ospath.join(dirpath, file_))
             return dl_path
