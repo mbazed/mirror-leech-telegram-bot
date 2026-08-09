@@ -15,8 +15,10 @@ services:
       - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY}
       - WIREGUARD_ENDPOINT_IP=213.152.162.101
       - WIREGUARD_ENDPOINT_PORT=1637
+      - HTTPPROXY=on
     ports:
       - "8090:8090"
+      - "1080:1080"
     restart: on-failure
 
   app:
@@ -24,7 +26,39 @@ services:
     container_name: mirror-bot
     command: bash start.sh
     restart: on-failure
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  monitor:
+    image: nicolargo/glances:latest-full
+    container_name: glances-monitor
+    restart: unless-stopped
+    network_mode: "host"
+    environment:
+      - GLANCES_OPT=-w
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    pid: host
+
+  ip-checker:
+    image: alpine:latest
+    container_name: vpn-ip-checker
+    restart: unless-stopped
     network_mode: "service:gluetun"
+    command: /bin/sh -c "apk add --no-cache curl && while true; do echo 'Current VPN IP:' && curl -s ifconfig.me && echo '' && sleep 300; done"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  socks5:
+    image: serjs/go-socks5-proxy
+    container_name: socks5-proxy
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    environment:
+      - PROXY_USER=mltb
+      - PROXY_PASSWORD=mltb
     depends_on:
       gluetun:
         condition: service_healthy

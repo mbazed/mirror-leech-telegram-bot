@@ -20,3 +20,4 @@ credentials.json
 *:Zone.Identifier
 .commandcode/
 
+.env
