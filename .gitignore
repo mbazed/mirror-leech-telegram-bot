@@ -15,3 +15,8 @@ cookies.txt
 downloads/*
 *.session
 __pycache__/
+credentials.json
+*.conf
+*:Zone.Identifier
+.commandcode/
+
