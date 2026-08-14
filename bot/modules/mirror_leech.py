@@ -1,3 +1,4 @@
+import os
 from aiofiles import open as aiopen
 from aiofiles.os import path as aiopath
 from os import path as ospath
@@ -21,6 +22,7 @@ from ..helper.ext_utils.links_utils import (
     is_gdrive_id,
     is_tldv_link,
 )
+from config import BANNED_WORDS
 from ..helper.listeners.task_listener import TaskListener
 from ..helper.mirror_leech_utils.download_utils.aria2_download import (
     add_aria2_download,
@@ -311,6 +313,17 @@ class Mirror(TaskListener):
             )
             await self.remove_from_same_dir()
             return
+
+        msg_text = self.message.text.lower() if self.message.text else ""
+        link_lower = self.link.lower() if self.link else ""
+        file_name_lower = getattr(file_, "file_name", "").lower() if file_ else ""
+        name_lower = self.name.lower() if self.name else ""
+
+        for word in BANNED_WORDS:
+            if word in msg_text or word in link_lower or word in file_name_lower or word in name_lower:
+                await send_message(self.message, f"❌ Download rejected: Contains blocked NSFW keyword (`{word}`).")
+                await self.remove_from_same_dir()
+                return
 
         if len(self.link) > 0:
             LOGGER.info(self.link)

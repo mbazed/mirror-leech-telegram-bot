@@ -91,7 +91,7 @@ async def select_type(_, query):
 async def gdrive_search(_, message):
     if len(message.text.split()) == 1:
         return await send_message(message, "Send a search key along with command")
-    user_id = message.from_user.id
+    user_id = (message.from_user or message.sender_chat).id
     buttons = await list_buttons(user_id)
     await send_message(message, "Choose list options:", buttons)
 

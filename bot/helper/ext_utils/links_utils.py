@@ -33,7 +33,7 @@ def is_telegram_link(url: str):
 def is_share_link(url: str):
     return bool(
         re_match(
-            r"https?:\/\/.+\.gdtot\.\S+|https?:\/\/(filepress|filebee|appdrive|gdflix)\.\S+",
+            r"https?:\/\/.+\.gdtot\.\S+|https?:\/\/(?:[^\/\.]+\.)*(filepress|filebee|appdrive|gdflix)\.\S+",
             url,
         )
     )

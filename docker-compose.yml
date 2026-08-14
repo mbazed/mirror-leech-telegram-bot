@@ -26,6 +26,9 @@ services:
     container_name: mirror-bot
     command: bash start.sh
     restart: on-failure
+    volumes:
+      - ./downloads:/app/downloads
+      - ./shared:/shared
     depends_on:
       gluetun:
         condition: service_healthy
@@ -41,24 +44,20 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     pid: host
 
-  ip-checker:
-    image: alpine:latest
-    container_name: vpn-ip-checker
-    restart: unless-stopped
-    network_mode: "service:gluetun"
-    command: /bin/sh -c "apk add --no-cache curl && while true; do echo 'Current VPN IP:' && curl -s ifconfig.me && echo '' && sleep 300; done"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-
-  socks5:
-    image: serjs/go-socks5-proxy
-    container_name: socks5-proxy
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
     restart: unless-stopped
     network_mode: "service:gluetun"
     environment:
-      - PROXY_USER=mltb
-      - PROXY_PASSWORD=mltb
+      - PUID=0
+      - PGID=0
+      - TZ=Etc/UTC
+      - WEBUI_PORT=8090
+    volumes:
+      - ./downloads:/app/downloads
+      - ./qBittorrent/config:/config/qBittorrent
+      - ./shared:/shared
     depends_on:
       gluetun:
         condition: service_healthy

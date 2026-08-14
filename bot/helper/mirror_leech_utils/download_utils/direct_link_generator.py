@@ -1171,14 +1171,10 @@ def sharer_scraper(url):
         res = cget("GET", url, headers=header)
     except Exception as e:
         raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
-    key = findall(r'"key",\s+"(.*?)"', res.text)
+    key = findall(r'"key"\s*[:,]\s*"(.*?)"', res.text)
     if not key:
         raise DirectDownloadLinkException("ERROR: Key not found!")
     key = key[0]
-    if not HTML(res.text).xpath("//button[@id='drc']"):
-        raise DirectDownloadLinkException(
-            "ERROR: This link don't have direct download button"
-        )
     boundary = uuid4()
     headers = {
         "Content-Type": f"multipart/form-data; boundary=----WebKitFormBoundary{boundary}",

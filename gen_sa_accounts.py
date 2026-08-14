@@ -49,8 +49,10 @@ def _create_accounts(service, project, count):
 def _create_remaining_accounts(iam, project):
     print(f"Creating accounts in {project}")
     sa_count = len(_list_sas(iam, project))
-    while sa_count != 100:
-        _create_accounts(iam, project, 100 - sa_count)
+    while sa_count != 20:
+        print(f"  -> Currently at {sa_count} SAs. Creating {20 - sa_count} more... (Waiting for Google IAM)")
+        _create_accounts(iam, project, 20 - sa_count)
+        sleep(5)
         sa_count = len(_list_sas(iam, project))
 
 
@@ -158,7 +160,7 @@ def _create_sa_keys(iam, projects, path_dir):
     for project in projects:
         current_key_dump = []
         print(f"Downloading keys from {project}")
-        while current_key_dump is None or len(current_key_dump) != 100:
+        while current_key_dump is None or len(current_key_dump) != 20:
             batch = iam.new_batch_http_request(callback=_batch_keys_resp)
             total_sas = _list_sas(iam, project)
             for sa in total_sas:
