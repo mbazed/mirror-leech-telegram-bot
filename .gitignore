@@ -24,3 +24,5 @@ credentials.json
 client_secret_*.json
 *_sa.pickle
 bot_backup.zip
+ARCHITECTURE.md
+gdflix-bypass.md
