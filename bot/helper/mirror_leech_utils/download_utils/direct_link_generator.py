@@ -18,6 +18,7 @@ from ...ext_utils.exceptions import DirectDownloadLinkException
 from ...ext_utils.help_messages import PASSWORD_ERROR_MESSAGE
 from ...ext_utils.links_utils import is_share_link
 from ...ext_utils.status_utils import speed_string_to_bytes
+from .gdflix_bypass import gdflix_bypass
 from .url_shortener_bypass import bypass_shortener, is_url_shortener
 
 user_agent = (
@@ -198,6 +199,8 @@ def direct_link_generator(link):
         ]
     ):
         return linkBox(link)
+    elif "gdflix" in domain:
+        return gdflix_bypass(link)
     elif is_share_link(link):
         return filepress(link) if "filepress" in domain else sharer_scraper(link)
     elif any(

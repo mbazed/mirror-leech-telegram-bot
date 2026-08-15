@@ -6,6 +6,7 @@ apscheduler
 aioaria2
 aioqbt
 cloudscraper
+curl_cffi
 dnspython
 fastapi
 feedparser

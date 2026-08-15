@@ -143,7 +143,17 @@ class Clone(TaskListener):
                 await send_message(self.message, msg, button)
                 return
             await self.on_download_start()
-            LOGGER.info(f"Clone Started: Name: {self.name} - Source: {self.link}")
+            
+            # --- IDIOT-PROOF G-DRIVE DESTINATION ---
+            # If the user defaults to Rclone (rc) but clones a GDrive link, 
+            # self.up_dest becomes an Rclone path (e.g. 'drive:/') which crashes GDrive API.
+            # We intercept it here and force it back to GDRIVE_ID.
+            if self.up_dest and (":" in self.up_dest or self.up_dest == "rc"):
+                from ..core.config_manager import Config
+                self.up_dest = self.user_dict.get("GDRIVE_ID") or Config.GDRIVE_ID
+            # ---------------------------------------
+
+            LOGGER.info(f"Clone Started: Name: {self.name} - Source: {self.link} - Destination: {self.up_dest}")
             drive = GoogleDriveClone(self)
             if files <= 10:
                 msg = await send_message(

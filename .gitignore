@@ -21,3 +21,6 @@ credentials.json
 .commandcode/
 
 .env
+client_secret_*.json
+*_sa.pickle
+bot_backup.zip
