@@ -22,8 +22,8 @@ async def _on_download_started(api, data):
     gid = data["params"][0]["gid"]
     download = await api.tellStatus(gid)
     options = await api.getOption(gid)
-    if options.get("follow-torrent", "") == "false":
-        return
+    # if options.get("follow-torrent", "") == "false":
+    #     return
     if is_metadata(download):
         LOGGER.info(f"onDownloadStarted: {gid} METADATA")
         await sleep(1)
@@ -65,8 +65,8 @@ async def _on_download_complete(api, data):
     except (TimeoutError, ClientError, Exception) as e:
         LOGGER.error(f"onDownloadComplete: {e}")
         return
-    if options.get("follow-torrent", "") == "false":
-        return
+    # if options.get("follow-torrent", "") == "false":
+    #     return
     if download.get("followedBy", []):
         new_gid = download.get("followedBy", [])[0]
         LOGGER.info(f"Gid changed from {gid} to {new_gid}")
