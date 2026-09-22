@@ -26,3 +26,7 @@ client_secret_*.json
 bot_backup.zip
 ARCHITECTURE.md
 gdflix-bypass.md
+
+*.pickle
+
+*.zip
